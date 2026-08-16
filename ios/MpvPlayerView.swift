@@ -53,10 +53,9 @@ struct VideoLoadConfig {
 // to apply the proper styling (e.g. border radius and shadows).
 //
 // The view is a thin host over MPVPlayerEngine (PlayerEngine.swift), which owns
-// the display layer, renderer, PiP, Now Playing and the audio session. The
-// presented native player (NativePlayer/) shares the same engine; this view's
-// job is only RN embedding: layer hosting, layout, and mapping engine delegate
-// callbacks 1:1 onto the JS EventDispatchers.
+// the display layer, renderer, PiP, Now Playing and the audio session. This
+// view's job is only RN embedding: layer hosting, layout, and mapping engine
+// delegate callbacks 1:1 onto the JS EventDispatchers.
 class MpvPlayerView: ExpoView {
 	private let engine = MPVPlayerEngine()
 	private var videoContainer: UIView!
