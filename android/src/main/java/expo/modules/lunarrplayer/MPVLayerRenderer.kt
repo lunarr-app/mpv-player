@@ -223,13 +223,18 @@ class MPVLayerRenderer(private val context: Context) : MPVLib.EventObserver {
             //    video, then any command — seek/pause — deadlocks the UI
             //    thread → ANR). hwdec=no makes every codec render via the
             //    gpu-next VO. Real devices unaffected.
-            //  - Real TV hardware: zero-copy `mediacodec` (fastest on
-            //    low-power devices) + fast profile.
+            //  - Real TV hardware: `mediacodec-copy` + fast profile. The
+            //    zero-copy `mediacodec` binds MediaCodec directly to the
+            //    display surface, which wedges the mpv core on low-end TV
+            //    SoCs (decoder "opens" but never emits frames — eternal
+            //    buffering, no progress events). The copy path decodes into
+            //    memory and uploads to the surface, so it stays robust
+            //    across cheap TV hardware.
             //  - Real phone: `mediacodec-copy` (broadest compatibility).
             when {
                 isEmulator() -> mpv?.setOptionString("hwdec", "no")
                 isTv -> {
-                    mpv?.setOptionString("hwdec", "mediacodec")
+                    mpv?.setOptionString("hwdec", "mediacodec-copy")
                     mpv?.setOptionString("profile", "fast")
                     // Don't retain already-played content for backward
                     // seeking over a network source — Jellyfin can re-fetch
@@ -398,18 +403,17 @@ class MPVLayerRenderer(private val context: Context) : MPVLib.EventObserver {
      * screensaver / app background while paused). Triggered from the host
      * activity's onResume via [MpvPlayerView.runResumeRecovery].
      *
-     * On TV, `hwdec=mediacodec` (zero-copy) binds MediaCodec directly to the
-     * display surface. When the screensaver invalidates that surface, the
-     * decoder is left bound to dead buffers and mpv auto-disables the video
-     * track (vid=no). Re-attaching the surface + cycling hwdec + re-selecting
-     * vid + seeking rebuilds the pipeline but leaves the video chain at EOF
-     * ("video=eof" in playback-restart) — the recreated MediaCodec produces no
-     * frames. Only a fresh `loadfile` deterministically recreates the decoder
-     * against the live surface, so we reload at the cached position.
+     * On TV, `hwdec=mediacodec-copy` decodes into memory and uploads each
+     * frame to the display surface, rather than binding MediaCodec directly
+     * to the surface (zero-copy `mediacodec`). The direct binding is what
+     * wedges low-end TV SoCs — the decoder "opens" but never emits frames
+     * (eternal buffering) — and it also leaves the decoder stuck on dead
+     * buffers when the screensaver invalidates the surface. The copy path
+     * avoids both failure classes; recovery remains as a safety net.
      *
      * This is the Android counterpart to iOS's `performDecoderReset()`, which
      * can get away with a `hwdec` cycle because VideoToolbox reinitializes
-     * cleanly; zero-copy MediaCodec bound to a lost surface does not.
+     * cleanly; a surface-bound MediaCodec does not.
      */
     fun recoverVideoOutput(surface: Surface?) {
         if (!isRunning) {
